@@ -19,7 +19,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
 
@@ -59,11 +59,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  // রিয়েল-টাইম মেসেজ রিঅ্যাকশন হ্যান্ডেল করা
+  socket.on('reactMessage', ({ receiverId, message }) => {
+    const receiverSocketId = onlineUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('messageReacted', message);
+    }
+  });
+
+  // রিয়েল-টাইম মেসেজ ডিলিট (Soft Delete) হ্যান্ডেল করা
+  socket.on('deleteMessage', ({ receiverId, message }) => {
+    const receiverSocketId = onlineUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('messageDeleted', message);
+    }
+  });
+
   // টাইপিং ইন্ডিকেটর হ্যান্ডেল করা
   socket.on('typing', ({ receiverId, isTyping }) => {
     const receiverSocketId = onlineUsers.get(receiverId);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit('userTyping', { isTyping });
+    }
+  });
+
+  // ব্লক স্ট্যাটাস লাইভ আপডেট (সকেটের ভেতরে সঠিকভাবে রাখা হলো)
+  socket.on('blockUpdate', ({ receiverId }) => {
+    const receiverSocketId = onlineUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('userBlockedStatusChanged');
     }
   });
 

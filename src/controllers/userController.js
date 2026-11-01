@@ -44,3 +44,48 @@ export const updateProfilePic = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+// কাউকে ব্লক বা আনব্লক করা
+export const toggleBlockUser = async (req, res) => {
+  try {
+    const { userIdToBlock } = req.params;
+    const currentUserId = req.user._id;
+
+    if (currentUserId.toString() === userIdToBlock) {
+      return res.status(400).json({ message: "You cannot block yourself" });
+    }
+
+    const currentUser = await User.findById(currentUserId);
+    const isBlocked = currentUser.blockedUsers.includes(userIdToBlock);
+
+    if (isBlocked) {
+      // আনব্লক করা
+      currentUser.blockedUsers = currentUser.blockedUsers.filter(
+        (id) => id.toString() !== userIdToBlock
+      );
+      await currentUser.save();
+      return res.status(200).json({ message: "User unblocked successfully", blocked: false });
+    } else {
+      // ব্লক করা
+      currentUser.blockedUsers.push(userIdToBlock);
+      await currentUser.save();
+      return res.status(200).json({ message: "User blocked successfully", blocked: true });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// ৩. নির্দিষ্ট ইউজারের প্রফাইল বা ব্লক লিস্ট ফেচ করার কন্ট্রোলার
+export const getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: "User not found!" });
+    }
+    res.status(200).json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
