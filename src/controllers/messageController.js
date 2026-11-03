@@ -147,3 +147,27 @@ export const getMessages = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// ৫. মেসেজগুলোকে 'Seen' হিসেবে মার্ক করার কন্ট্রোলার
+export const markMessagesAsSeen = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    // যেসব মেসেজ এই কনভার্সেশনের এবং ইউজার নিজে পাঠাননি, অথচ এখনও seenBy-তে ইউজারের আইডি নেই
+    await Message.updateMany(
+      {
+        conversationId,
+        sender: { $ne: userId },
+        seenBy: { $ne: userId },
+      },
+      {
+        $push: { seenBy: userId },
+      }
+    );
+
+    res.status(200).json({ message: "Messages marked as seen" });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};

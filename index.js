@@ -10,7 +10,7 @@ import userRoutes from './src/routes/userRoutes.js';
 import chatRoutes from './src/routes/chatRoutes.js';
 import messageRoutes from './src/routes/messageRoutes.js';
 import friendRoutes from './src/routes/friendRoutes.js';
-
+import User from './src/models/User.js';
 dotenv.config();
 
 const app = express();
@@ -29,6 +29,15 @@ app.use(express.json());
 connectDB();
 
 // API Routes
+// server.js এর ভেতরে রাউটগুলোর ঠিক ওপরে বা নিচে এটি যোগ করুন:
+app.get('/api/users/test/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/chats', chatRoutes);
@@ -101,6 +110,14 @@ io.on('connection', (socket) => {
       }
     }
     io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+  });
+
+  // মেসেজ সিন হ্যান্ডেল করার সকেট ইভেন্ট
+  socket.on('markSeen', ({ receiverId, conversationId }) => {
+    const receiverSocketId = onlineUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('messagesSeen', { conversationId });
+    }
   });
 });
 
