@@ -13,7 +13,6 @@ export const sendFriendRequest = async (req, res) => {
       return res.status(400).json({ message: "You cannot send a friend request to yourself." });
     }
 
-    // চেক করা আগে থেকে কোনো রিকোয়েস্ট আছে কি না
     const existingRequest = await FriendRequest.findOne({
       $or: [
         { sender: senderId, recipient: recipientId },
@@ -69,7 +68,6 @@ export const acceptFriendRequest = async (req, res) => {
     request.status = 'accepted';
     await request.save();
 
-    // ১ম ব্যক্তির (sender) জন্য পার্মানেন্ট নোটিফিকেশন তৈরি করা
     const existingNotification = await Notification.findOne({
       recipient: request.sender._id,
       sender: request.recipient,
@@ -78,26 +76,25 @@ export const acceptFriendRequest = async (req, res) => {
 
     if (!existingNotification) {
       const newNotification = new Notification({
-        recipient: request.sender._id, // যিনি রিকোয়েস্ট পাঠিয়েছিলেন
-        sender: request.recipient,     // যিনি এক্সেপ্ট করলেন
+        recipient: request.sender._id,
+        sender: request.recipient,
         type: 'request_accepted',
         message: `accepted your friend request.`
       });
       await newNotification.save();
     }
 
-    // চেক করা ইতিমধ্যে দুজনের মধ্যে কোনো কনভার্সেশন আছে কি না
+    // [সংশোধন]: 'users'-এর পরিবর্তে 'members' ব্যবহার করা হলো যাতে Conversation মডেলের সাথে মিলে যায়
     let chat = await Conversation.findOne({
       isGroupChat: false,
-      users: { $all: [request.sender._id, request.recipient] }
+      members: { $all: [request.sender._id, request.recipient] }
     });
 
-    // না থাকলে নতুন কনভার্সেশন ক্রিয়েট করা
     if (!chat) {
       chat = new Conversation({
         chatName: "Direct Chat",
         isGroupChat: false,
-        users: [request.sender._id, request.recipient]
+        members: [request.sender._id, request.recipient]
       });
       await chat.save();
     }
@@ -127,7 +124,8 @@ export const rejectFriendRequest = async (req, res) => {
   }
 };
 
-// ৫. ইউজারের কনফার্মড ফ্রেন্ড লিস্ট ফেচ করা
+// ৫. ইউজারের কনফার্মড ফ্রেন্ড লিস্ট ফেচ করা (পাশাপাশি কনভার্সেশন না থাকলে তা ব্যাকএন্ডে নিশ্চিত করা)
+// ৫. ইউজারের কনফার্মড ফ্রেন্ড লিস্ট ফেচ করা (নিরাপদ ও ক্র্যাশ-প্রুফ)
 export const getMyFriends = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -137,13 +135,18 @@ export const getMyFriends = async (req, res) => {
       $or: [{ sender: userId }, { recipient: userId }]
     }).populate('sender recipient', 'name username profilePic email');
 
-    const friends = friendships.map(friend => {
+    const friends = [];
+
+    for (const friend of friendships) {
+      // যদি sender বা recipient কোনো কারণে ডাটাবেজে না থাকে (deleted user), তবে স্কিপ করবে
+      if (!friend.sender || !friend.recipient) continue;
+
       if (friend.sender._id.toString() === userId.toString()) {
-        return friend.recipient;
+        friends.push(friend.recipient);
       } else {
-        return friend.sender;
+        friends.push(friend.sender);
       }
-    });
+    }
 
     res.status(200).json(friends);
   } catch (error) {
@@ -151,7 +154,6 @@ export const getMyFriends = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
 // ৬. ইউজারের পার্মানেন্ট নোটিফিকেশনগুলো ফেচ করা
 export const getUserNotifications = async (req, res) => {
   try {
@@ -163,6 +165,38 @@ export const getUserNotifications = async (req, res) => {
     res.status(200).json(notifications);
   } catch (error) {
     console.error("Error in getUserNotifications:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+
+// নির্দিষ্ট ইউজারের ফ্রেন্ড লিস্ট পাওয়ার জন্য (সংশোধিত ও সঠিক কোড)
+export const getUserFriends = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // FriendRequest মডেল এবং sender/recipient ফিল্ড ব্যবহার করে কুয়েরি করা হলো
+    const friendships = await FriendRequest.find({
+      status: 'accepted',
+      $or: [{ sender: userId }, { recipient: userId }]
+    }).populate('sender recipient', 'name username profilePic email');
+
+    const friends = [];
+
+    for (const friend of friendships) {
+      if (!friend.sender || !friend.recipient) continue;
+
+      if (friend.sender._id.toString() === userId.toString()) {
+        friends.push(friend.recipient);
+      } else {
+        friends.push(friend.sender);
+      }
+    }
+
+    res.status(200).json(friends);
+  } catch (error) {
+    console.error("Error in getUserFriends:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

@@ -1,7 +1,7 @@
 import Conversation from '../models/Conversation.js';
 import User from '../models/User.js';
 
-// নতুন কনভার্সেশন তৈরি বা বিদ্যমান কনভার্সেশন খুঁজে বের করা (নিরাপদ ও টাইপ-সেফ চেকসহ)
+// নতুন কনভার্সেশন তৈরি বা বিদ্যমান কনভার্সেশন খুঁজে বের করা
 export const getOrCreateConversation = async (req, res) => {
   try {
     const { receiverId } = req.body;
@@ -23,11 +23,9 @@ export const getOrCreateConversation = async (req, res) => {
 
     const fullConversation = await Conversation.findById(conversation._id).populate('members', 'name username profilePic');
     
-    // সেফলি ইউজার ফেচ করা
     const currentUser = await User.findById(senderId);
     const receiverUser = await User.findById(receiverId);
 
-    // .some() এবং .toString() ব্যবহার করে ObjectId ও সঠিক তুলনা নিশ্চিত করা হলো
     const isBlockedByMe = currentUser?.blockedUsers?.some(id => id.toString() === receiverId) || false;
     const isBlockedByThem = receiverUser?.blockedUsers?.some(id => id.toString() === senderId.toString()) || false;
 
@@ -44,20 +42,39 @@ export const getOrCreateConversation = async (req, res) => {
   }
 };
 
-// ইউজারের সব কনভার্সেশন বা চ্যাট লিস্ট ফেচ করা (সুরক্ষিত ও নিখুঁত)
+// ইউজারের সব কনভার্সেশন বা চ্যাট লিস্ট ফেচ করা (সুরক্ষিত ও ক্র্যাশ-প্রুফ)
 export const getUserConversations = async (req, res) => {
   try {
+    const userId = req.user?._id?.toString();
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
     const conversations = await Conversation.find({
-      members: { $in: [req.user._id] },
-      hiddenBy: { $ne: req.user._id },
+      members: { $in: [userId] },
+      hiddenBy: { $ne: userId },
     })
-      // এখানে -password বাদ দিয়ে শুধুমাত্র পজিটিভ সিলেকশন ব্যবহার করা হলো
       .populate('members', 'name username profilePic')
       .populate('lastMessage')
       .sort({ updatedAt: -1 });
 
-    // ফিল্টার করে নিশ্চিত করা যাতে কোনো ফাঁকা মেম্বার না থাকে
-    const validConversations = conversations.filter(conv => conv.members && conv.members.length > 0);
+    const validConversations = conversations.map(conv => {
+      const convObj = conv.toObject();
+      
+      // সেফলি unreadCount বের করা (যদি unreadCounts ম্যাপ না থাকে)
+      let unreadCount = 0;
+      if (convObj.unreadCounts) {
+        // Map বা Object যেটাই হোক না কেন সেফলি রিড করা
+        unreadCount = convObj.unreadCounts instanceof Map 
+          ? (convObj.unreadCounts.get(userId) || 0) 
+          : (convObj.unreadCounts[userId] || 0);
+      }
+
+      return {
+        ...convObj,
+        unreadCount,
+      };
+    }).filter(conv => conv.members && conv.members.length > 0 && !conv.members.includes(null));
 
     res.status(200).json(validConversations);
   } catch (error) {
@@ -88,6 +105,28 @@ export const hideConversation = async (req, res) => {
 
     res.status(200).json({ message: "Chat removed from list successfully" });
   } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// চ্যাট ওপেন করলে আনরিড কাউন্ট শূন্য (0) করা
+export const markChatAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id.toString();
+
+    const conversation = await Conversation.findById(conversationId);
+    if (conversation) {
+      if (!conversation.unreadCounts) {
+        conversation.unreadCounts = new Map();
+      }
+      conversation.unreadCounts.set(userId, 0);
+      await conversation.save();
+    }
+
+    res.status(200).json({ message: "Chat marked as read" });
+  } catch (error) {
+    console.error("Error in markChatAsRead:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };

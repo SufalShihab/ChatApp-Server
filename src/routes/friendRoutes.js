@@ -6,7 +6,8 @@ import {
   acceptFriendRequest, 
   rejectFriendRequest,
   getMyFriends,
-  getUserNotifications
+  getUserNotifications,
+  getUserFriends
 } from '../controllers/friendController.js';
 
 const router = express.Router();
@@ -14,6 +15,8 @@ const router = express.Router();
 router.post('/send', protect, sendFriendRequest);
 router.get('/', protect, getFriendRequests);
 router.get('/my-friends', protect, getMyFriends);
+// নির্দিষ্ট ইউজারের ফ্রেন্ডস পাওয়ার রুট
+router.get('/user/:userId', protect, getUserFriends);
 router.get('/notifications', protect, getUserNotifications);
 router.put('/accept/:requestId', protect, acceptFriendRequest);
 router.delete('/reject/:requestId', protect, rejectFriendRequest);

@@ -35,10 +35,30 @@ export const sendMessage = async (req, res) => {
       seenBy: [senderId],
     });
 
-    await Conversation.findByIdAndUpdate(conversationId, {
-      lastMessage: newMessage._id,
-    });
+    // কনভার্সেশনের লাস্ট মেসেজ, আনরিড কাউন্ট এবং updatedAt আপডেট করা
+// কনভার্সেশনের লাস্ট মেসেজ এবং unreadCounts আপডেট করা
+    const conversation = await Conversation.findById(conversationId);
+    if (conversation) {
+      conversation.lastMessage = newMessage._id;
+      conversation.updatedAt = Date.now();
+      
+      if (!conversation.unreadCounts) {
+        conversation.unreadCounts = new Map();
+      }
+      
+      // বর্তমান প্রাপক যদি এই চ্যাটটি ওপেন করে রাখে, তবে আমরা কাউন্ট বাড়াবো না বা 0 রাখব
+      // (যেহেতু ফ্রন্টএন্ড থেকে ওপেন থাকলেই markAsRead কল হয়)
+      const currentCount = conversation.unreadCounts.get(receiverId.toString()) || 0;
+      
+      // যদি রিসিভার চ্যাটবক্সে না থাকে কেবল তখনই কাউন্ট ১ বাড়বে
+      conversation.unreadCounts.set(receiverId.toString(), currentCount + 1);
+      
+      conversation.hiddenBy = conversation.hiddenBy.filter(
+        id => id.toString() !== receiverId.toString()
+      );
 
+      await conversation.save();
+    }    
     const populatedMessage = await Message.findById(newMessage._id)
       .populate('sender', 'name profilePic')
       .populate({
@@ -63,21 +83,17 @@ export const addReaction = async (req, res) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ message: 'Message not found' });
 
-    // ইউজার ইতিমধ্যে কোনো রিঅ্যাকশন দিয়ে থাকলে তা আপডেট বা রিমোভ করা
     const existingReactionIndex = message.reactions.findIndex(
       (r) => r.user.toString() === userId.toString()
     );
 
     if (existingReactionIndex > -1) {
       if (message.reactions[existingReactionIndex].emoji === emoji) {
-        // একই ইমোজিতে আবার ক্লিক করলে রিঅ্যাকশন মুছে যাবে
         message.reactions.splice(existingReactionIndex, 1);
       } else {
-        // ভিন্ন ইমোজি হলে তা পরিবর্তন হবে
         message.reactions[existingReactionIndex].emoji = emoji;
       }
     } else {
-      // নতুন রিঅ্যাকশন যোগ হবে
       message.reactions.push({ user: userId, emoji });
     }
 
@@ -89,7 +105,7 @@ export const addReaction = async (req, res) => {
   }
 };
 
-// ৩. মেসেজ ডিলিট করা (Soft Delete - টেক্সট পরিবর্তন করে দেওয়া এবং Cloudinary থেকে ফাইল মোছা)
+// ৩. মেসেজ ডিলিট করা (Soft Delete)
 export const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
@@ -99,7 +115,6 @@ export const deleteMessage = async (req, res) => {
       return res.status(404).json({ message: 'Message not found' });
     }
 
-    // ছবি বা ফাইল থাকলে Cloudinary থেকে মুছে ফেলা
     if (message.attachments && message.attachments.length > 0) {
       for (const fileUrl of message.attachments) {
         const parts = fileUrl.split('/');
@@ -111,7 +126,6 @@ export const deleteMessage = async (req, res) => {
       }
     }
 
-    // ডাটাবেজ থেকে সম্পূর্ণ ডিলিট না করে টেক্সট ও অ্যাটাচমেন্ট পরিবর্তন করে দেওয়া
     message.text = "This message was deleted";
     message.attachments = [];
     message.reactions = [];
@@ -154,7 +168,6 @@ export const markMessagesAsSeen = async (req, res) => {
     const { conversationId } = req.params;
     const userId = req.user._id;
 
-    // যেসব মেসেজ এই কনভার্সেশনের এবং ইউজার নিজে পাঠাননি, অথচ এখনও seenBy-তে ইউজারের আইডি নেই
     await Message.updateMany(
       {
         conversationId,
@@ -169,5 +182,27 @@ export const markMessagesAsSeen = async (req, res) => {
     res.status(200).json({ message: "Messages marked as seen" });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ৬. চ্যাট ওপেন করলে আনরিড কাউন্ট শূন্য (0) করার কন্ট্রোলার
+export const markChatAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id.toString();
+
+    const conversation = await Conversation.findById(conversationId);
+    if (conversation) {
+      if (!conversation.unreadCounts) {
+        conversation.unreadCounts = new Map();
+      }
+      conversation.unreadCounts.set(userId, 0);
+      await conversation.save();
+    }
+
+    res.status(200).json({ message: "Chat marked as read" });
+  } catch (error) {
+    console.error("Error in markChatAsRead:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
