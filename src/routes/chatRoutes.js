@@ -7,5 +7,6 @@ const router = express.Router();
 router.post('/', protect, getOrCreateConversation);
 router.get('/', protect, getUserConversations);
 router.put('/read/:conversationId', protect, markChatAsRead)
-router.put('/hide/:conversationId', protect, hideConversation);
+router.put('/hide-chat/:conversationId', protect, hideConversation);
+
 export default router;
